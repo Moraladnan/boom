@@ -1,0 +1,39 @@
+
+{
+  "name": "Server Boom",
+  "short_name": "Server Boom",
+  "start_url": "/boom/index.html",
+  "scope": "/boom/",
+  "background_color": "#ffffff",
+  "theme_color": "#0f172a",
+  "display": "standalone",
+  "icons": [
+    {
+      "src": "/boom/icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },{
+      "src": "/boom/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/boom/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "id": "serverboom",
+  "description": "Simple booming game by @Moraladnan",
+  "categories": [
+    "game"
+  ],
+  "lang": "en",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  }
+  ]
+}

@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="icon.png" type="image/x-icon">
+    <link rel="manifest" href="/boom/manifest.json"><title>Server Boom CSE-70</title>
+    <script> if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('service-worker.js')
+    .then((registration) => {
+      console.log('Service Worker registered:', registration);
+    })
+    .catch((error) => {
+      console.error('Service Worker registration failed:', error);
+    });
+}
+   </script>
+   <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto Mono', monospace;
+            overflow: hidden; /* Prevents scrollbars from appearing */
+        }
+        canvas {
+            background-color: #080a0f;
+            display: block;
+            border-radius: 0.5rem;
+            border: 1px solid #1e293b;
+        }
+        .control-button {
+            transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out;
+        }
+        .control-button:active {
+            transform: scale(0.95);
+        }
+        .control-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        /* Hide scrollbar for Chrome, Safari and Opera */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        /* Hide scrollbar for IE, Edge and Firefox */
+        .no-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-300 flex flex-col items-center justify-center min-h-screen p-4 no-scrollbar">
+
+    <div id="game-container" class="w-full max-w-2xl mx-auto flex flex-col items-center">
+       <h1 class="text-3xl font-bold text-cyan-400 mb-2">Server Boom</h1>
+        <p class="text-slate-400 mb-4 text-center">
+  Shout BOOMs at the servers!<br>
+  Win (score/100) BDT from the Admin on your first attempt.
+</p>  <!-- Game Info Bar -->
+        <div class="w-full flex justify-between items-center bg-slate-800 p-2 rounded-t-lg">
+            <div class="text-lg">Score: <span id="scoreEl">0</span></div>
+            <div class="text-lg">Level: <span id="levelEl">1</span></div>
+        </div>
+
+        <!-- Canvas and Game Over Modal -->
+        <div class="relative w-full">
+            <canvas id="gameCanvas"></canvas>
+            <div id="modalEl" class="absolute inset-0 hidden flex-col items-center justify-center bg-black bg-opacity-70 text-white text-center rounded-b-lg p-4">
+                <h2 id="modalScoreEl" class="text-5xl font-bold">0</h2>
+                <p class="text-xl mt-2">Points</p>
+                <div id="insult-container" class="mt-2 h-8 flex items-center justify-center">
+                    <p id="insultText" class="text-amber-300 italic"></p>
+                </div>
+                <div class="mt-4">
+                    <h3 class="text-lg font-bold">High Scores</h3>
+                    <ul id="scoreHistory" class="text-slate-400">
+                        <li>No scores yet!</li>
+                    </ul>
+                </div>
+                <button id="startGameBtn" class="mt-6 bg-cyan-500 hover:bg-cyan-600 text-slate-900 font-bold py-3 px-8 rounded-lg text-xl shadow-lg shadow-cyan-500/20">Play Again</button>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="w-full mt-4 flex justify-between items-center space-x-2 md:space-x-4">
+            <button id="shootBtn" class="control-button flex-grow bg-red-600 hover:bg-red-500 text-white font-bold py-4 px-6 rounded-lg"><i class="fa-brands fa-space-awesome"></i></button>
+             <div class="flex space-x-2 md:space-x-4">
+                 <button id="moveLeftBtn" class="control-button bg-slate-700 hover:bg-slate-600 text-white font-bold py-4 px-6 rounded-lg w-24"><i class="fa-solid fa-circle-arrow-left"></i></button>
+                 <button id="moveRightBtn" class="control-button bg-slate-700 hover:bg-slate-600 text-white font-bold py-4 px-6 rounded-lg w-24"><i class="fa-solid fa-circle-arrow-right"></i></button>
+            </div>
+        </div>
+    </div>
+<script>
+    // --- Basic Setup ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const scoreEl = document.getElementById('scoreEl');
+    const levelEl = document.getElementById('levelEl');
+    const modalEl = document.getElementById('modalEl');
+    const modalScoreEl = document.getElementById('modalScoreEl');
+    const startGameBtn = document.getElementById('startGameBtn');
+    const insultText = document.getElementById('insultText');
+    const scoreHistoryEl = document.getElementById('scoreHistory');
+    const moveLeftBtn = document.getElementById('moveLeftBtn');
+    const moveRightBtn = document.getElementById('moveRightBtn');
+    const shootBtn = document.getElementById('shootBtn');
+    
+    const gameContainer = document.getElementById('game-container');
+    canvas.width = gameContainer.clientWidth;
+    canvas.height = Math.min(window.innerHeight * 0.6, 500);
+
+    // --- Game State Variables ---
+    let animationId;
+    let score = 0;
+    let level = 1;
+    let frames = 0;
+    let serverSpawnRate = 100;
+    let powerUpActive = false;
+    let powerUpTimer = 0;
+    const serverNames = ['FACEBOOK', 'META', 'INSTA', 'THREADS', 'WHATSAPP', 'DATA-01', 'USER_DB'];
+    
+    let player, projectiles, servers, particles, powerUps;
+    const keys = {
+        left: { pressed: false },
+        right: { pressed: false }
+    };
+
+    // --- Anti-Cheat Variables ---
+    let clickTimes = [];
+    const maxHumanRate = 60; // max allowed clicks in 5 seconds
+    const cheaterTexts = [
+        "you are a cheater!",
+        "Caught red-handed, cheater!",
+        "No bots allowed!",
+        "Too fast to be human!",
+        "Cheating detected!"
+    ];
+
+    function checkClickRate() {
+        const now = Date.now();
+        // keep only clicks in last 5s
+        clickTimes = clickTimes.filter(t => now - t <= 5000);
+        if (clickTimes.length > maxHumanRate) {
+            // Cheater detected
+            cancelAnimationFrame(animationId);
+            insultText.textContent = `"${cheaterTexts[Math.floor(Math.random() * cheaterTexts.length)]}"`;
+            modalScoreEl.textContent = score;
+            modalEl.style.display = 'flex';
+            return true;
+        }
+        return false;
+    }
+
+    function handleShoot() {
+        clickTimes.push(Date.now());
+        if (checkClickRate()) return;
+        shoot(); // original shooting logic
+    }
+
+    // --- Game Objects ---
+    class Player {
+        constructor() {
+            this.width = 40;
+            this.height = 20;
+            this.position = { x: canvas.width / 2 - this.width / 2, y: canvas.height - this.height - 10 };
+            this.velocity = { x: 0 };
+            this.speed = 6;
+            this.color = '#0891b2'; // cyan-600
+        }
+
+        draw() {
+            ctx.fillStyle = powerUpActive ? '#f59e0b' : this.color;
+            shootBtn.innerHTML = powerUpActive ? `<i class="fa-brands fa-space-awesome"></i><i class="fa-brands fa-space-awesome"></i>`:`<i class="fa-brands fa-space-awesome"></i>`; // Amber when powered up
+            ctx.beginPath();
+            ctx.moveTo(this.position.x + this.width / 2, this.position.y);
+            ctx.lineTo(this.position.x, this.position.y + this.height);
+            ctx.lineTo(this.position.x + this.width, this.position.y + this.height);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        update() {
+            this.position.x += this.velocity.x;
+            if (this.position.x <= 0) this.position.x = 0;
+            if (this.position.x + this.width >= canvas.width) this.position.x = canvas.width - this.width;
+            this.draw();
+        }
+    }
+
+    class Projectile {
+         constructor({ position, velocity }) {
+            this.position = position;
+            this.velocity = velocity;
+            this.radius = 5;
+        }
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.position.x, this.position.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#f43f5e'; // red-500
+            ctx.fill();
+            ctx.closePath();
+        }
+        update() {
+            this.position.y += this.velocity.y;
+            this.draw();
+        }
+    }
+
+    class Server {
+        constructor({ position, velocity, text }) {
+            this.position = position;
+            this.velocity = velocity;
+            this.width = 80;
+            this.height = 40;
+            this.text = text;
+        }
+        draw() {
+            ctx.fillStyle = '#334155'; // slate-700
+            ctx.fillRect(this.position.x, this.position.y, this.width, this.height);
+            
+            ctx.fillStyle = '#1e293b'; // slate-800
+            ctx.fillRect(this.position.x + 5, this.position.y + 5, this.width - 10, 8);
+            ctx.fillRect(this.position.x + 5, this.position.y + 17, this.width - 10, 8);
+            
+            ctx.fillStyle = frames % 60 < 30 ? '#10b981' : '#475569';
+            ctx.beginPath();
+            ctx.arc(this.position.x + this.width - 10, this.position.y + this.height - 10, 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#94a3b8'; // slate-400
+            ctx.font = '10px "Roboto Mono"';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(this.text, this.position.x + 8, this.position.y + this.height - 10);
+        }
+        update() {
+            this.position.y += this.velocity.y;
+            this.draw();
+        }
+    }
+
+    class PowerUp {
+        constructor({ position, velocity }) {
+            this.position = position;
+            this.velocity = velocity;
+            this.width = 20;
+            this.height = 20;
+        }
+        draw() {
+            ctx.font = '24px serif';
+            ctx.fillText('🍌', this.position.x, this.position.y);
+        }
+        update() {
+            this.position.y += this.velocity.y;
+            this.draw();
+        }
+    }
+    
+    class Particle {
+        constructor({ position, velocity, radius, color, fades }) {
+            this.position = position;
+            this.velocity = velocity;
+            this.radius = radius;
+            this.color = color;
+            this.opacity = 1;
+            this.fades = fades;
+        }
+        draw() {
+            ctx.save();
+            ctx.globalAlpha = this.opacity;
+            ctx.beginPath();
+            ctx.arc(this.position.x, this.position.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+            ctx.closePath();
+            ctx.restore();
+        }
+        update() {
+            this.position.x += this.velocity.x;
+            this.position.y += this.velocity.y;
+            if (this.fades) this.opacity -= 0.02;
+            this.draw();
+        }
+    }
+
+    // --- Game Logic ---
+    function init() {
+        player = new Player();
+        projectiles = [];
+        servers = [];
+        particles = [];
+        powerUps = [];
+        score = 0;
+        level = 1;
+        frames = 0;
+        serverSpawnRate = 100;
+        powerUpActive = false;
+        powerUpTimer = 0;
+        scoreEl.textContent = 0;
+        levelEl.textContent = 1;
+        insultText.textContent = '';
+        clickTimes = [];
+    }
+
+    function shoot() {
+        if (powerUpActive) {
+            projectiles.push(new Projectile({ position: { x: player.position.x + player.width / 2, y: player.position.y }, velocity: { x: 0, y: -8 } }));
+            projectiles.push(new Projectile({ position: { x: player.position.x + player.width / 2, y: player.position.y }, velocity: { x: -2, y: -7 } }));
+            projectiles.push(new Projectile({ position: { x: player.position.x + player.width / 2, y: player.position.y }, velocity: { x: 2, y: -7 } }));
+        } else {
+            projectiles.push(new Projectile({ position: { x: player.position.x + player.width / 2, y: player.position.y }, velocity: { x: 0, y: -8 } }));
+        }
+    }
+
+    function animate() {
+        animationId = requestAnimationFrame(animate);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        player.velocity.x = 0;
+        if (keys.left.pressed) player.velocity.x = -player.speed;
+        if (keys.right.pressed) player.velocity.x = player.speed;
+        player.update();
+
+        if (powerUpActive) {
+            powerUpTimer--;
+            if (powerUpTimer <= 0) {
+                powerUpActive = false;
+            }
+        }
+
+        particles.forEach((p, i) => p.opacity <= 0 ? particles.splice(i, 1) : p.update());
+        projectiles.forEach((p, i) => p.position.y + p.radius <= 0 ? projectiles.splice(i, 1) : p.update());
+        powerUps.forEach((p, i) => p.position.y > canvas.height ? powerUps.splice(i, 1) : p.update());
+
+        if (frames % serverSpawnRate === 0) {
+            servers.push(new Server({
+                position: { x: Math.random() * (canvas.width - 80), y: -40 },
+                velocity: { y: 1 + (level * 0.2) },
+                text: serverNames[Math.floor(Math.random() * serverNames.length)]
+            }));
+        }
+        if (frames > 0 && frames % 700 === 0) {
+             powerUps.push(new PowerUp({
+                position: { x: Math.random() * (canvas.width - 20), y: -20 },
+                velocity: { y: 1.5 }
+            }));
+        }
+
+        servers.forEach((server, serverIndex) => {
+            if (server.position.y + server.height > canvas.height) {
+                endGame();
+                return;
+            }
+            server.update();
+
+            projectiles.forEach((projectile, projectileIndex) => {
+                if (projectile.position.y - projectile.radius <= server.position.y + server.height && projectile.position.y + projectile.radius >= server.position.y && projectile.position.x + projectile.radius >= server.position.x && projectile.position.x - projectile.radius <= server.position.x + server.width) {
+                    score += 100;
+                    scoreEl.textContent = score;
+                    if (score > 0 && score % 1000 === 0) {
+                       level++;
+                       levelEl.textContent = level;
+                       serverSpawnRate = Math.max(30, serverSpawnRate - 10);
+                    }
+                    for (let i = 0; i < 15; i++) particles.push(new Particle({ position: { x: server.position.x + server.width / 2, y: server.position.y + server.height / 2 }, velocity: { x: (Math.random() - 0.5) * 4, y: (Math.random() - 0.5) * 4 }, radius: Math.random() * 3, color: '#64748b', fades: true }));
+                    setTimeout(() => { servers.splice(serverIndex, 1); projectiles.splice(projectileIndex, 1); }, 0);
+                }
+            });
+        });
+        
+        powerUps.forEach((powerUp, index) => {
+             if (player.position.x < powerUp.position.x + powerUp.width && player.position.x + player.width > powerUp.position.x && player.position.y < powerUp.position.y + powerUp.height && player.position.y + player.height > powerUp.position.y) {
+                powerUpActive = true;
+                powerUpTimer = 300;
+                powerUps.splice(index, 1);
+            }
+        });
+
+        frames++;
+    }
+
+    function endGame() {
+        cancelAnimationFrame(animationId);
+        modalScoreEl.textContent = score;
+        saveScore(score);
+        displayScoreHistory();
+        displayInsult(score);
+        modalEl.style.display = 'flex';
+    }
+
+    function saveScore(newScore) {
+        if(newScore <= 0) return;
+        const scores = getScores();
+        scores.push(newScore);
+        scores.sort((a, b) => b - a);
+        localStorage.setItem('serverBoomScores', JSON.stringify(scores.slice(0, 5)));
+    }
+
+    function getScores() {
+        const scores = localStorage.getItem('serverBoomScores');
+        return scores ? JSON.parse(scores) : [];
+    }
+    
+    function displayScoreHistory() {
+        const scores = getScores();
+        scoreHistoryEl.innerHTML = '';
+        if (scores.length === 0) {
+            scoreHistoryEl.innerHTML = '<li>No scores yet!</li>';
+            return;
+        }
+        scores.forEach(s => {
+            const li = document.createElement('li');
+            li.textContent = s;
+            scoreHistoryEl.appendChild(li);
+        });
+    }
+    
+    function displayInsult(playerScore) {
+        const insults = {
+            low: ["Is that all? My calculator is more threatening.", "You call that shooting? The packets are laughing.", "Even a dial-up modem has more fight."],
+            medium: ["Not bad, for a human.", "You're causing minor latency.", "The firewall is mildly concerned."],
+            high: ["Okay, you've officially crashed the mainframe!", "They're rebooting the whole rack because of you!", "The sysadmin is crying. Well done."]
+        };
+        let category;
+        if (playerScore < 500) category = 'low';
+        else if (playerScore < 2000) category = 'medium';
+        else category = 'high';
+        
+        const chosenInsult = insults[category][Math.floor(Math.random() * insults[category].length)];
+        insultText.textContent = `"${chosenInsult}"`;
+    }
+
+    // --- Event Listeners ---
+    startGameBtn.addEventListener('click', () => {
+        init();
+        animate();
+        modalEl.style.display = 'none';
+    });
+
+    window.addEventListener('keydown', (e) => {
+        if (modalEl.style.display === 'flex') return;
+        switch (e.key) {
+            case 'ArrowLeft': keys.left.pressed = true; break;
+            case 'ArrowRight': keys.right.pressed = true; break;
+            case ' ': handleShoot(); break; // replaced
+        }
+    });
+    window.addEventListener('keyup', (e) => {
+        switch (e.key) {
+            case 'ArrowLeft': keys.left.pressed = false; break;
+            case 'ArrowRight': keys.right.pressed = false; break;
+        }
+    });
+    
+    moveLeftBtn.addEventListener('mousedown', () => keys.left.pressed = true);
+    moveLeftBtn.addEventListener('mouseup', () => keys.left.pressed = false);
+    moveLeftBtn.addEventListener('mouseleave', () => keys.left.pressed = false);
+    moveLeftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); keys.left.pressed = true; });
+    moveLeftBtn.addEventListener('touchend', (e) => { e.preventDefault(); keys.left.pressed = false; });
+    
+    moveRightBtn.addEventListener('mousedown', () => keys.right.pressed = true);
+    moveRightBtn.addEventListener('mouseup', () => keys.right.pressed = false);
+    moveRightBtn.addEventListener('mouseleave', () => keys.right.pressed = false);
+    moveRightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); keys.right.pressed = true; });
+    moveRightBtn.addEventListener('touchend', (e) => { e.preventDefault(); keys.right.pressed = false; });
+
+    shootBtn.addEventListener('click', handleShoot); // replaced
+    
+    window.addEventListener('resize', () => {
+        canvas.width = gameContainer.clientWidth;
+        canvas.height = Math.min(window.innerHeight * 0.6, 500);
+        player.position.x = canvas.width / 2 - player.width / 2;
+        player.position.y = canvas.height - player.height - 10;
+    });
+
+    modalEl.style.display = 'flex';
+    modalScoreEl.textContent = '0';
+    displayScoreHistory();
+</script>
+
+</body>
+</html>
+
